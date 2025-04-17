@@ -1,8 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"io"
+	"demo-network/internalpenetration"
 	"log"
 	"net"
 	"os"
@@ -15,55 +14,49 @@ func main() {
 		log.Fatal("Error listening:", err)
 	}
 	defer listener.Close()
-	fmt.Println("Server is listening on port 8080")
+	log.Println("Client is listening on port 8080")
 
+	httpConn := getHttpConn()
+	serverConn := getServerConn()
+	internalpenetration.CopyOnConn(httpConn.(*net.TCPConn), serverConn.(*net.TCPConn))
+
+	stopChan := make(chan os.Signal)
+	signal.Notify(stopChan, os.Interrupt, os.Kill)
+	<-stopChan
+}
+
+func getHttpConn() net.Conn {
+	httpConn, err := net.Dial("tcp", "127.0.0.1:7080")
+	if err != nil {
+		defer httpConn.Close()
+		log.Println("Error dialing:", err)
+		return nil
+	}
+	return httpConn
+}
+func getServerConn() net.Conn {
 	serverConn, err := net.Dial("tcp", "127.0.0.1:9080")
 	if err != nil {
-		fmt.Println("Error dialing:", err)
-		return
+		defer serverConn.Close()
+		log.Println("Error dialing:", err)
+		return nil
 	}
-	defer serverConn.Close()
 
 	_, err = serverConn.Write([]byte("hello server"))
 	if err != nil {
-		fmt.Println("Error writing to server:", err)
-		return
+		log.Println("Error writing to server:", err)
+		return nil
 	}
 
 	buf := make([]byte, 1024)
 	n, err := serverConn.Read(buf)
 	if err != nil {
-		fmt.Println("Error reading from server:", err)
-		return
+		log.Println("Error reading from server:", err)
+		return nil
 	}
 	if msg := string(buf[:n]); msg != "hello client" {
-		fmt.Println("receive server request error!!!")
-		return
+		log.Println("receive server request error!!!")
+		return nil
 	}
-
-	httpConn, err := net.Dial("tcp", "127.0.0.1:7080")
-	if err != nil {
-		fmt.Println("Error dialing:", err)
-		return
-	}
-	defer httpConn.Close()
-
-	go func() {
-		_, err := io.Copy(httpConn, serverConn)
-		if err != nil {
-			fmt.Println("Error writing to client:", err)
-			return
-		}
-	}()
-	go func() {
-		_, err := io.Copy(serverConn, httpConn)
-		if err != nil {
-			fmt.Println("Error writing to client:", err)
-			return
-		}
-	}()
-
-	stopChan := make(chan os.Signal)
-	signal.Notify(stopChan, os.Interrupt, os.Kill)
-	<-stopChan
+	return serverConn
 }

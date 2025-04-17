@@ -1,9 +1,6 @@
 package main
 
-import (
-	"log"
-	"net/http"
-)
+import "net/http"
 
 func main() {
 	mux := http.NewServeMux()
@@ -17,9 +14,9 @@ func main() {
 	if err != nil {
 		return
 	}
+
 }
 
 func hello(w http.ResponseWriter, r *http.Request) {
-	log.Println("hello")
 	w.Write([]byte("Hello World from APP"))
 }

@@ -1,8 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"io"
+	"demo-network/internalpenetration"
 	"log"
 	"net"
 )
@@ -17,7 +16,7 @@ func main() {
 		log.Fatal("Error listening:", err)
 	}
 	defer listener.Close()
-	fmt.Println("Server is listening on port 9080")
+	log.Println("Server is listening on port 9080")
 
 	for {
 		conn, err := listener.Accept()
@@ -25,8 +24,7 @@ func main() {
 			log.Println("Error accepting connection:", err)
 			continue
 		}
-		fmt.Println("New client connected")
-
+		log.Println("New client connected")
 		go handleConnection(conn)
 	}
 }
@@ -34,34 +32,25 @@ func handleConnection(conn net.Conn) {
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil {
-		fmt.Println("Error reading from connection:", err)
-		conn.Close()
+		defer conn.Close()
+		log.Println("Error reading from connection:", err)
 		return
 	}
 
 	if msg := string(buf[:n]); msg == "hello server" {
-		fmt.Println("receive client request")
+		log.Println("receive client request")
+		_, _ = conn.Write([]byte("hello client"))
 		clientConn = conn
-		_, err = conn.Write([]byte("hello client"))
 	} else {
-		fmt.Println("receive app request")
-		if clientConn != nil {
-			clientConn.Write(buf[:n])
-			go func() {
-				_, err2 := io.Copy(clientConn, conn)
-				if err2 != nil {
-					fmt.Println("Error writing to client:", err2)
-					return
-				}
-			}()
-			go func() {
-				defer conn.Close()
-				_, err2 := io.Copy(conn, clientConn)
-				if err2 != nil {
-					fmt.Println("Error writing to client:", err2)
-					return
-				}
-			}()
-		}
+		log.Println("receive app request")
+		handleAppRequest(buf[:n], conn)
 	}
+}
+
+func handleAppRequest(buf []byte, conn net.Conn) {
+	if clientConn == nil {
+		return
+	}
+	_, _ = clientConn.Write(buf)
+	internalpenetration.CopyOnConn(clientConn.(*net.TCPConn), conn.(*net.TCPConn))
 }
