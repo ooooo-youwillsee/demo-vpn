@@ -2,14 +2,9 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"net"
-	"os"
-	"os/exec"
-	"os/signal"
-	"syscall"
-
 	"github.com/songgao/water"
+	"log"
+	"os/exec"
 )
 
 func main() {
@@ -32,40 +27,41 @@ func main() {
 		log.Fatalf("Failed to set TUN IP address: %v", err)
 	}
 
-	serverConn, err := net.Dial("tcp", "127.0.0.1:9080")
-	if err != nil {
-		fmt.Println("Error dialing:", err)
-		return
-	}
-	defer serverConn.Close()
-
-	_, err = serverConn.Write([]byte("hello server"))
-	if err != nil {
-		fmt.Println("Error writing to server:", err)
-		return
-	}
-
-	buf := make([]byte, 1024)
-	n, err := serverConn.Read(buf)
-	if err != nil {
-		fmt.Println("Error reading from server:", err)
-		return
-	}
-	if msg := string(buf[:n]); msg != "hello client" {
-		fmt.Println("receive server request error!!!")
-		return
-	}
+	//serverConn, err := net.Dial("tcp", "127.0.0.1:9080")
+	//if err != nil {
+	//	fmt.Println("Error dialing:", err)
+	//	return
+	//}
+	//defer serverConn.Close()
+	//
+	//_, err = serverConn.Write([]byte("hello server"))
+	//if err != nil {
+	//	fmt.Println("Error writing to server:", err)
+	//	return
+	//}
+	//
+	//buf := make([]byte, 1024)
+	//n, err := serverConn.Read(buf)
+	//if err != nil {
+	//	fmt.Println("Error reading from server:", err)
+	//	return
+	//}
+	//if msg := string(buf[:n]); msg != "hello client" {
+	//	fmt.Println("receive server request error!!!")
+	//	return
+	//}
 
 	// 读取 TUN 设备的数据包
-	//buffer := make([]byte, 1024*1024)
-	//for {
-	//	n, err := tun.Read(buffer)
-	//	if err != nil {
-	//		log.Printf("Error reading from TUN device: %v", err)
-	//		continue
-	//	}
-	//	fmt.Printf("Received a packet of length %d\n", n)
-	//}
+	buffer := make([]byte, 1024*1024)
+	for {
+		n, err := tun.Read(buffer)
+		if err != nil {
+			log.Printf("Error reading from TUN device: %v", err)
+			continue
+		}
+		fmt.Printf("Received a packet of length %d\n", n)
+		fmt.Println(string(buffer[:n]))
+	}
 
 	//go func() {
 	//	_, err := io.Copy(serverConn, tun)
@@ -84,10 +80,10 @@ func main() {
 	//}()
 	//
 	// 处理系统信号，用于优雅退出
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	<-sigs
-	fmt.Println("Received termination signal, exiting...")
+	//sigs := make(chan os.Signal, 1)
+	//signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	//<-sigs
+	//fmt.Println("Received termination signal, exiting...")
 }
 
 func setTunIpForMac(tunName, localIp, remoteIp, netmask string) error {

@@ -10,10 +10,19 @@
 
 ![img.png](img.png)
 
+请求流程：
+
+1. 启动 app 程序，并监听端口7080。
+2. 启动 server 程序，并监听端口9080。
+3. 启动 client 程序，与app，server建立连接。
+4. client程序：负责将**server请求**复制到**app**，**app响应**复制到**server**。
+5. server程序：负责将**app请求**复制到**client**，**client响应**复制到**app**。
+6. 示例程序，没有处理**连接异常时重试，重连等**问题，过一段时间需要重启client。
 
 示例代码：
 
-app.go：
+app(一个简单的http程序)：
+
 ```go
 package main
 
@@ -36,17 +45,15 @@ func main() {
 func hello(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Hello World from APP"))
 }
-
 ```
 
-客户端：
+client：
 
 ```go 
 package main
 
 import (
-	"fmt"
-	"io"
+	"demo-network/internalpenetration"
 	"log"
 	"net"
 	"os"
@@ -59,69 +66,61 @@ func main() {
 		log.Fatal("Error listening:", err)
 	}
 	defer listener.Close()
-	fmt.Println("Server is listening on port 8080")
+	log.Println("Client is listening on port 8080")
 
-	serverConn, err := net.Dial("tcp", "127.0.0.1:9080")
-	if err != nil {
-		fmt.Println("Error dialing:", err)
-		return
-	}
-	defer serverConn.Close()
-
-	_, err = serverConn.Write([]byte("hello server"))
-	if err != nil {
-		fmt.Println("Error writing to server:", err)
-		return
-	}
-
-	buf := make([]byte, 1024)
-	n, err := serverConn.Read(buf)
-	if err != nil {
-		fmt.Println("Error reading from server:", err)
-		return
-	}
-	if msg := string(buf[:n]); msg != "hello client" {
-		fmt.Println("receive server request error!!!")
-		return
-	}
-
-	httpConn, err := net.Dial("tcp", "127.0.0.1:7080")
-	if err != nil {
-		fmt.Println("Error dialing:", err)
-		return
-	}
-	defer httpConn.Close()
-
-	go func() {
-		_, err := io.Copy(httpConn, serverConn)
-		if err != nil {
-			fmt.Println("serverConn -> httpConn, Error writing to client:", err)
-			return
-		}
-	}()
-	go func() {
-		_, err := io.Copy(serverConn, httpConn)
-		if err != nil {
-			fmt.Println("httpConn -> serverConn, Error writing to client:", err)
-			return
-		}
-	}()
+	httpConn := getHttpConn()
+	serverConn := getServerConn()
+	internalpenetration.CopyOnConn(httpConn.(*net.TCPConn), serverConn.(*net.TCPConn))
 
 	stopChan := make(chan os.Signal)
 	signal.Notify(stopChan, os.Interrupt, os.Kill)
 	<-stopChan
 }
+
+func getHttpConn() net.Conn {
+	httpConn, err := net.Dial("tcp", "127.0.0.1:7080")
+	if err != nil {
+		defer httpConn.Close()
+		log.Println("Error dialing:", err)
+		return nil
+	}
+	return httpConn
+}
+func getServerConn() net.Conn {
+	serverConn, err := net.Dial("tcp", "127.0.0.1:9080")
+	if err != nil {
+		defer serverConn.Close()
+		log.Println("Error dialing:", err)
+		return nil
+	}
+
+	_, err = serverConn.Write([]byte("hello server"))
+	if err != nil {
+		log.Println("Error writing to server:", err)
+		return nil
+	}
+
+	buf := make([]byte, 1024)
+	n, err := serverConn.Read(buf)
+	if err != nil {
+		log.Println("Error reading from server:", err)
+		return nil
+	}
+	if msg := string(buf[:n]); msg != "hello client" {
+		log.Println("receive server request error!!!")
+		return nil
+	}
+	return serverConn
+}
 ```
 
-
-服务端：
+server：
 
 ```go
 package main
 
 import (
-	"fmt"
-	"io"
+	"demo-network/internalpenetration"
 	"log"
 	"net"
 )
@@ -136,7 +135,7 @@ func main() {
 		log.Fatal("Error listening:", err)
 	}
 	defer listener.Close()
-	fmt.Println("Server is listening on port 9080")
+	log.Println("Server is listening on port 9080")
 
 	for {
 		conn, err := listener.Accept()
@@ -144,8 +143,7 @@ func main() {
 			log.Println("Error accepting connection:", err)
 			continue
 		}
-		fmt.Println("New client connected")
-
+		log.Println("New client connected")
 		go handleConnection(conn)
 	}
 }
@@ -153,17 +151,17 @@ func handleConnection(conn net.Conn) {
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil {
-		fmt.Println("Error reading from connection:", err)
-		conn.Close()
+		defer conn.Close()
+		log.Println("Error reading from connection:", err)
 		return
 	}
 
 	if msg := string(buf[:n]); msg == "hello server" {
-		fmt.Println("receive client request")
+		log.Println("receive client request")
+		_, _ = conn.Write([]byte("hello client"))
 		clientConn = conn
-		_, err = conn.Write([]byte("hello client"))
 	} else {
-		fmt.Println("receive app request")
+		log.Println("receive app request")
 		handleAppRequest(buf[:n], conn)
 	}
 }
@@ -173,22 +171,51 @@ func handleAppRequest(buf []byte, conn net.Conn) {
 		return
 	}
 	_, _ = clientConn.Write(buf)
-	go func() {
-		_, err2 := io.Copy(clientConn, conn)
-		if err2 != nil {
-			fmt.Println("conn -> clientConn, Error writing to client:", err2)
-			return
-		}
-	}()
-	go func() {
-		_, err2 := io.Copy(conn, clientConn)
-		if err2 != nil {
-			fmt.Println("clientConn -> conn, Error writing to client:", err2)
-			return
-		}
-	}()
+	internalpenetration.CopyOnConn(clientConn.(*net.TCPConn), conn.(*net.TCPConn))
 }
 
+```
+
+util.go
+
+```go
+package internalpenetration
+
+import (
+	"io"
+	"log"
+	"net"
+	"sync"
+)
+
+// CopyOnConn 负责dst和src的数据复制
+func CopyOnConn(dst *net.TCPConn, src *net.TCPConn) {
+	defer dst.Close()
+	defer src.Close()
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		defer dst.CloseWrite()
+		_, err := io.Copy(dst, src)
+		if err != nil {
+			log.Printf("%s->%s Error writing to client: %v \n", src.LocalAddr(), dst.LocalAddr(), err)
+			return
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		defer src.CloseWrite()
+		_, err := io.Copy(src, dst)
+		if err != nil {
+			log.Printf("%s->%s Error writing to client: %v \n", dst.LocalAddr(), src.LocalAddr(), err)
+			return
+		}
+	}()
+	wg.Wait()
+}
 ```
 
 
